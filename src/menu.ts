@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-non-null-assertion -- s*/
 /* eslint-disable @typescript-eslint/prefer-nullish-coalescing -- Technical debt */
 /* eslint-disable @typescript-eslint/restrict-template-expressions -- Technical debt */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment  -- Technical debt */
@@ -10,6 +11,8 @@ import {
 } from "@forsakringskassan/apimock-express";
 
 import client from "./client.js?raw"; // Using raw-loader for inline content
+import { createTextElement, textTemplate } from "./settings/text";
+
 import styling from "./style.scss";
 
 export interface SelectOption {
@@ -48,7 +51,33 @@ export interface TextSettings {
     options: LinkOption[];
 }
 
+const settingsNodes: DocumentFragment[] = [];
+
 export type Settings = SelectSettings | LinkSettings | TextSettings;
+
+export function setCookie(
+    cookieName: string,
+    cookieValue: string,
+    exdays: number,
+): void {
+    const d = new Date();
+    d.setTime(d.getTime() + exdays * 24 * 60 * 60 * 1000);
+    const expires = `expires=${d.toUTCString()}`;
+    document.cookie = `${cookieName}=${cookieValue};${expires};path=/`;
+}
+
+export function getCookie(cookieName: string): string | undefined {
+    const name = `${cookieName}=`;
+    const decodedCookie = decodeURIComponent(document.cookie);
+    const ca = decodedCookie.split(";");
+    for (const cookie of ca) {
+        const c = cookie.trimStart();
+        if (c.startsWith(name)) {
+            return c.substring(name.length);
+        }
+    }
+    return undefined;
+}
 
 function evaluateMock<T>(mock: MockResponse<T>): StaticMockResponse<T> {
     /* if the mock is a `DynamicMockResponse` evaluate the function */
@@ -106,18 +135,6 @@ function generateOptionMarkupForLink(setting: LinkSettings): string {
 }
 
 /**
- * @param textSettings - The setting to generate markup for.
- * @returns Returns the generated markup as a string.
- */
-function generateOptionMarkupForTextInput(setting: TextSettings): string {
-    const description = setting.description
-        ? `<p>${setting.description}</p>`
-        : "";
-
-    return `${setting.title} ${description} <br /> <input name="${setting.key}"  type="text"></input>`;
-}
-
-/**
  * @param setting - The setting to generate markup for.
  * @returns Returns the generated markup as a string.
  */
@@ -128,7 +145,7 @@ function generateOptionMarkup(setting: Settings): string {
         case "links":
             return generateOptionMarkupForLink(setting);
         case "text":
-            return generateOptionMarkupForTextInput(setting);
+            settingsNodes.push(createTextElement(setting));
     }
     return "";
 }
@@ -208,6 +225,15 @@ const defaultSetting = {
  * @param userSettingsAndMocks - An array of user settings and/or mocks to generate the menu from.
  */
 export default (userSettingsAndMocks: Array<Settings | Mock>): void => {
+    /* Client CSS */
+    document.head.insertAdjacentHTML("beforeend", `<style>${styling}</style>`);
+    document.body.insertAdjacentHTML(
+        "beforeend",
+        `
+        ${textTemplate}
+     `,
+    );
+
     let settingsMarkup = "";
     userSettingsAndMocks
         .map((userSettingOrMock) =>
@@ -219,9 +245,6 @@ export default (userSettingsAndMocks: Array<Settings | Mock>): void => {
             const setting: Settings = { ...defaultSetting, ...userSetting };
             settingsMarkup = settingsMarkup + generateOptionMarkup(setting);
         });
-
-    /* Client CSS */
-    document.head.insertAdjacentHTML("beforeend", `<style>${styling}</style>`);
 
     /* Markup */
     document.body.insertAdjacentHTML(
@@ -239,6 +262,11 @@ export default (userSettingsAndMocks: Array<Settings | Mock>): void => {
         </div>
     </div>`,
     );
+
+    const menu = document.querySelector(".menu")!;
+    for (const node of settingsNodes) {
+        menu.append(node);
+    }
 
     /* Client JS */
     const script = document.createElement("script");
